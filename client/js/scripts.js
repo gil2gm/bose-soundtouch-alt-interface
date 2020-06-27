@@ -38,6 +38,7 @@ $(document).ready(function() {
     //fill radiochannel and intercom arrays
     $.getJSON(protocol + "//" + hostname + ":" + port + "/api/options", function(data) {
         options = data;
+        console.log(data);
             if (data != "" ) {
                 buildRadioList();
                 buildMessagesList();

@@ -8,24 +8,27 @@ const upload = multer();
 const fs = require("fs");
 const http = require("http");
 const https = require("https");
-const privateKey = fs.readFileSync("server.key", "utf8");
-const certificate = fs.readFileSync("server.cert", "utf8");
-const credentials = { key: privateKey, cert: certificate };
+// const privateKey = fs.readFileSync("server.key", "utf8");
+// const certificate = fs.readFileSync("server.cert", "utf8");
+// const credentials = { key: privateKey, cert: certificate };
 
 const app = express();
 http.createServer(app).listen(3002);
-https.createServer(credentials, app).listen(3001);
+https.createServer(app).listen(3001);
 app.use(express.static("client"));
 
 //If you don't use Hass.io set HassEnv to false
 var HassEnv = false;
+let optionsStations = {};
 
 if (HassEnv === true) {
   var options = require("./options");
   app.set("options", options);
 }
 if (HassEnv === false) {
-  var options = require("./client/js/options.json");
+  const stations = require('./tunein');
+  optionsStations = require("./config.json").options;
+  optionsStations.radioFavourites = [...optionsStations.radioFavourites, ...stations.getList];
 }
 
 // Globals
@@ -41,9 +44,14 @@ var os = require("os");
 if (os.networkInterfaces().eth0) {
   deviceIP = os.networkInterfaces().eth0[0].address;
 }
-if (os.networkInterfaces()["Wi-Fi"]) {
-  let wifi = os.networkInterfaces()["Wi-Fi"].length;
-  deviceIP = os.networkInterfaces()["Wi-Fi"][wifi - 1].address;
+console.log(os.networkInterfaces()['wlp2s0']);
+if (os.networkInterfaces()["wlp2s0"]) {
+  let wifi = os.networkInterfaces()["wlp2s0"].length;
+  if (wifi !== 1) {
+    const index = os.networkInterfaces()["wlp2s0"].findIndex( item => item.family === 'IPv4');
+    if (index === -1) throw(500);
+    deviceIP = os.networkInterfaces()["wlp2s0"][index].address;
+  }
 } else {
   let ethernet = os.networkInterfaces().Ethernet.length;
   deviceIP = os.networkInterfaces().Ethernet[ethernet - 1].address;
@@ -93,11 +101,11 @@ app.get("/api/devices", function(req, res) {
 
 // make user's options available to client
 app.get("/api/options", function(req, res) {
-  res.status(200).json(options);
+  res.status(200).json(optionsStations);
 });
 
 // interface Action functions (had to be moved to backend because of new Cors restriction in Soundtouch API)
-const APIkey = ""; //enter your app API key from developer.bose.com
+const APIkey = "kSQAc2wdlpcDAXjNNiYk7zPxjFIIi5Ph"; //enter your app API key from developer.bose.com
 
 app.get("/api/getInfo", function(req, res, next) {
   let selectedSpeakerIP = req.query.ip;
@@ -198,11 +206,15 @@ app.post("/api/setChannel", function(req, res, next) {
   let selectedSpeakerIP = req.query.ip;
   let favourite = req.query.fav;
   if (HassEnv === false) {
-    var options = require("./client/js/options.json");
+    var options = optionsStations;
   } else {
     var options = app.options;
   }
-  let postData = options.radioFavourites[favourite].payload;
+  let index = options.radioFavourites.findIndex( item => item.favID === Number(favourite) );
+  if (index === -1) throw(400);
+  
+  let postData = options.radioFavourites[index].payload;
+
   var options = {
     method: "POST",
     uri: "http://" + selectedSpeakerIP + ":8090/select",
@@ -226,6 +238,7 @@ app.post("/api/sendMessage", function(req, res, next) {
   let message = req.query.url;
   if (message === "recording") {
     message = "http://" + deviceIP + ":3002/upload/message.mp3";
+    console.log(message);
   }
   var postData =
     "<play_info><app_key>" +
